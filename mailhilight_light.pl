@@ -167,6 +167,9 @@ sub send_messages {
 			}
 		}
 	}
+	foreach(@hilights) {
+		$mail =~ s/($_)/<b>$1<\/b>/gi;
+	}
 	if (defined($mail)) {
 		my %sendmail = ( To => $mailto, From => $mailfrom, 'Content-Type' => 'text/html; charset="UTF-8"', Subject => $subject, Message => $mail );
 		sendmail(%sendmail) or die($Mail::Sendmail::error);
