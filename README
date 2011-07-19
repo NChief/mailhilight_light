@@ -30,9 +30,11 @@
 ## Changelog
 # 0.1
 #       * Inital release (stripped version from mailhilight.pl)
+# 0.2
+#       * added join/part/quit etc to after-context
 #
 ## TODO
-# - Add join/part/quit/nickchange to after-context
+# - somehow avoid sending same line several times? care?
 # - dunno
 #
 ##################################

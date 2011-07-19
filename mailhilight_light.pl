@@ -31,9 +31,11 @@
 ## Changelog
 # 0.1
 #	* Inital release (stripped version from mailhilight.pl)
+# 0.2
+#	* added join/part/quit etc to after-context
 #
 ## TODO
-# - Add join/part/quit/nickchange to after-context
+# - somehow avoid sending same line several times? care?
 # - dunno
 #
 ##################################
@@ -49,7 +51,7 @@ use POSIX;
 use vars qw($VERSION %IRSSI);
 use Data::Dumper;
 
-$VERSION = "0.1";
+$VERSION = "0.2";
 %IRSSI = (
         authours => 'NChief',
         contact => 'NChief @ EFNet',
@@ -69,19 +71,16 @@ settings_add_int('mailhilight_light', 'mailhilight_timer', 60);
 
 
 # vars
-my(@hilights, $mailto, $mailfrom, $subject, $verbose, $mode, $context, $context_length, $messages, $timer);
+my(@hilights, $mailto, $mailfrom, $subject, $verbose, $mode, $context, $context_length, $timer);
+my $messages = {};
 my $timebuffer = undef;
 
 sub public_message {
 	my ($server, $msg, $nick, $host, $channel) = @_;
-	if (defined($messages->{$channel})) {
-		save_message($msg, $nick, $channel, $server);
-		return;
-	}
-	return if (!$server->{usermode_away} or $mode == 1);
+	return if (!$server->{usermode_away} or $mode == 1 or defined($messages->{$channel}));
 	foreach (@hilights) {
-		if ($msg =~ /$_/i){
-			save_message($msg, $nick, $channel, $server);
+		if ($msg =~ /(\W|^)$_(\W|$)/i) {
+			save_message($msg, $nick, $channel, $server, undef);
 			last;
 		}
 	}
@@ -89,35 +88,60 @@ sub public_message {
 
 sub private_message {
 	my ($server, $msg, $nick, $host) = @_;
-	save_message($msg, $nick, undef, $server) if ($server->{usermode_away} and $mode != 2);
+	save_message($msg, $nick, undef, $server, undef) if ($server->{usermode_away} and $mode != 2 and !defined($messages->{$nick}));
+}
+
+sub direct_print {
+	my ($dest, $text, $stripped) = @_;
+	if(defined($messages->{$dest->{target}})) {
+		save_message(undef, undef, $dest->{target}, undef, $stripped) unless ($messages->{$dest->{target}}->{'first'});
+		$messages->{$dest->{target}}->{'first'} = 0 if $messages->{$dest->{target}}->{'first'};
+	}
 }
 
 sub save_message {
-	my ($msg, $nick, $channel, $server) = @_;
-	$msg = Irssi::strip_codes($msg);
+	my ($msg, $nick, $channel, $server, $direct) = @_;
 	my $time = strftime(Irssi::settings_get_str('timestamp_format'), localtime);
-	if ((defined($channel))) { # channel msg
-		my $channel_rec = $server->channel_find($channel);
-		my $nick_rec = $channel_rec->nick_find($nick);
-
-		push(@{$messages->{$channel}->{'messages'}}, { 'time' => $time, 'message' => $msg, 'nick' => $nick_rec->{prefixes}.$nick });
-		print CRAP "Hilight saved" if ($verbose >=2);
-
-		context_add($channel, $server) if (($context) and (!defined($messages->{$channel}->{'context'})));
-		if (!defined($timebuffer)) {
-			$timebuffer = Irssi::timeout_add_once($timer * 1000, 'send_messages', undef);
-		} else { # reset timer if hilight
-			foreach (@hilights) {
-				if ($msg =~ /$_/i) {
+	if (defined($direct)) { # A direct print
+		push(@{$messages->{$channel}->{'messages'}}, $time." ".gtlt($direct));
+		foreach (@hilights) {
+			if ($direct =~ /(\W|^)$_(\W|$)/i) {
+				if(defined($timebuffer)) {
 					Irssi::timeout_remove($timebuffer);
-					$timebuffer = Irssi::timeout_add_once($timer * 1000, 'send_messages', undef);
 					print "Timer reset" if ($verbose >= 3);
-					last;
 				}
+				$timebuffer = Irssi::timeout_add_once($timer * 1000, 'send_messages', undef);
+				print CRAP "Hilight saved" if ($verbose >=2);
+				return;
 			}
 		}
-	} else { # priv msg
-		push(@{$messages->{$nick}}, { 'time' => $time, 'message' => $msg });
+		print CRAP "Message saved" if ($verbose >=2);
+	} elsif (defined($channel)) { # A channel hilight
+		my $channel_rec = $server->channel_find($channel);
+		my $nick_rec = $channel_rec->nick_find($nick);
+		if(defined($messages->{$channel})) {
+			$messages->{$channel}->{'first'} = 0;
+		} else {
+			$messages->{$channel}->{'first'} = 1;
+			context_add($channel, $server) if ($context);
+		}
+		my $prefix = $nick_rec->{prefixes} || " ";
+		push(@{$messages->{$channel}->{'messages'}}, $time.' &lt;'.$prefix.$nick.'&gt; '.$msg);
+		print CRAP "Hilight saved" if ($verbose >=2);
+		
+		
+		if(defined($timebuffer)) {
+			Irssi::timeout_remove($timebuffer);
+			print "Timer reset" if ($verbose >= 3);
+		}
+		$timebuffer = Irssi::timeout_add_once($timer * 1000, 'send_messages', undef);
+	} else { # A priv msg
+		if(defined($messages->{$nick})) {
+			$messages->{$nick}->{'first'} = 0;
+		} else {
+			$messages->{$nick}->{'first'} = 1;
+		}
+		push(@{$messages->{$nick}->{'messages'}}, $time.' &lt;'.$nick.'&gt; '.$msg);
 		print CRAP "MSG saved" if ($verbose >=2);
 		if(defined($timebuffer)) {
 			Irssi::timeout_remove($timebuffer);
@@ -130,16 +154,16 @@ sub save_message {
 sub send_messages {
 	my $mail = undef;
 	foreach my $target (keys %{$messages}) {
-		if ($target =~ /^#/) { # is a channel
+		if ($target =~ /^#/) {
 			$mail .= "Hilight in ".$target.":<br />";
 			$mail .= $messages->{$target}->{'context'}."<br />" if (defined($messages->{$target}->{'context'}));
 			foreach my $msg (@{$messages->{$target}->{'messages'}}) {
-				$mail .= $msg->{'time'}." &lt;".$msg->{'nick'}."&gt; ".$msg->{'message'}."<br />";
+				$mail .= $msg."<br />";
 			}
 		} else {
-			$mail .= "MSG from ".$target.":<br />";
-			foreach my $msg (@{$messages->{$target}}) {
-				$mail .= $msg->{'time'}." &lt;".$target."&gt; ".$msg->{'message'}."<br />";
+			$mail .= "MSG form ".$target.":<br />";
+			foreach my $msg (@{$messages->{$target}->{'messages'}}) {
+				$mail .= $msg."<br />";
 			}
 		}
 	}
@@ -157,18 +181,13 @@ sub context_add {
 	my $window = $server->window_find_item($target);
 	my $view = $window->view;
 	my $line = $view->{buffer}->{cur_line};
-	my $context_before = undef;
+	#my $context_before = undef;
 	for(my $i = 0; $i < $context_length; $i++) {
 		last unless defined $line;
-		if ($i == 0) {
-			$context_before = gtlt(Irssi::strip_codes($line->get_text(1)));
-		} else {
-			$context_before = gtlt(Irssi::strip_codes($line->get_text(1)))."<br />".$context_before;
-		}
+		unshift(@{$messages->{$target}->{'messages'}}, gtlt(Irssi::strip_codes($line->get_text(1))));
 		$line = $line->prev;
 		last unless defined $line;
 	}
-	$messages->{$target}->{'context'} = $context_before;
 	print CRAP "Context added" if ($verbose >= 3);
 }
 
@@ -196,5 +215,6 @@ setup_changed(); # to fill vars
 
 #signals
 Irssi::signal_add("message public", "public_message");
-Irssi::signal_add("message private", "private_message");
+Irssi::signal_add_last("message private", "private_message");
+Irssi::signal_add('print text', 'direct_print');
 Irssi::signal_add_last('setup changed', "setup_changed");
