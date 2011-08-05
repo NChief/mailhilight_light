@@ -101,6 +101,7 @@ sub direct_print {
 
 sub save_message {
 	my ($msg, $nick, $channel, $server, $direct) = @_;
+	$msg = Irssi::strip_codes($msg) if defined($msg);
 	my $time = strftime(Irssi::settings_get_str('timestamp_format'), localtime);
 	if (defined($direct)) { # A direct print
 		push(@{$messages->{$channel}->{'messages'}}, $time." ".gtlt($direct));
@@ -166,6 +167,7 @@ sub send_messages {
 				$mail .= $msg."<br />";
 			}
 		}
+		$mail .= "<br /><hr /><br />";
 	}
 	foreach(@hilights) {
 		$mail =~ s/($_)/<b>$1<\/b>/gi;
@@ -213,6 +215,18 @@ sub setup_changed { # update vars when setup is changed.
 	$timer = settings_get_int('mailhilight_timer');
 }
 
+sub cmd_away {
+	my ($data, $server, $channel) = @_;
+	unless ($data) { #not away
+		$messages = {};
+		if (defined($timebuffer)) {
+			Irssi::timeout_remove($timebuffer);
+			$timebuffer = undef;
+			print(CRAP "mailhilight aborted") if ($verbose >= 3);
+		}
+	}
+}
+
 #init
 setup_changed(); # to fill vars
 
@@ -221,3 +235,5 @@ Irssi::signal_add("message public", "public_message");
 Irssi::signal_add_last("message private", "private_message");
 Irssi::signal_add('print text', 'direct_print');
 Irssi::signal_add_last('setup changed', "setup_changed");
+# Command
+Irssi::command_bind('away', 'cmd_away');
