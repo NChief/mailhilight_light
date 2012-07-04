@@ -1,8 +1,9 @@
+#!/usr/bin/perl
 ##################################
 # mailhilight_light.pl by NChief
 # 
 # This script wil send you a mail if hilighted or get a private MSG
-# The light version doesn not include crap like autoaway and screenaway. And this code is improved.
+# The light version does not include crap like autoaway and screenaway. And this code is improved.
 #
 # Script requires sendmail and perl modules Mail::Sendmail (`cpan Mail::Sendmail`)
 #
@@ -26,6 +27,11 @@
 #		How many lines before hilight to get.
 # - /set mailhilight_timer 60
 #		How many seconds to wait before sending mail.
+# - /set mailhilight_nma OFF
+#   Set to ON if you want to use NMA (Notify My Android - https://www.notifymyandroid.com/)
+#   If message exeeds 1000 chars, it will fallback to mail.
+# - /set mailhilight_nmakey
+#   Set your NMA API-key
 #
 ## Changelog
 # 0.1
@@ -38,6 +44,8 @@
 ## TODO
 # - somehow avoid sending same line several times? care?
 # - Prowl?
+# - Ingore nick/channel
+# - verify nma?
 # - dunno
 #
 ##################################
