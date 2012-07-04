@@ -1,6 +1,6 @@
 ##################################
 # mailhilight_light.pl by NChief
-#
+# 
 # This script wil send you a mail if hilighted or get a private MSG
 # The light version doesn not include crap like autoaway and screenaway. And this code is improved.
 #
@@ -8,33 +8,36 @@
 #
 ## Settings:
 # - /set mailhilight_hiligon YourNick
-#               This sets what to trigger on. its a list of triggers sepreated with space
-#               It wil on trigger if its surrounded by non word characters (A-z_)
+#		This sets what to trigger on. its a list of triggers sepreated with space
+#		It wil on trigger if its surrounded by non word characters (A-z_)
 # - /set mailhilight_to you@email.com
-#               Set wich email to send your hilights to.
+#		Set wich email to send your hilights to.
 # - /set mailhilight_from from@email.com
-#               Set the from-mail
+#		Set the from-mail
 # - /set mailhilight_subject New hilights/messages
-#               Sets the subject the mail i sent with
+#		Sets the subject the mail i sent with
 # - /set mailhilight_verbose 1
-#               0 = no info(unless error), 1 = print on send, 2 = print on send and message save, 3 = debug
+#		0 = no info(unless error), 1 = print on send, 2 = print on send and message save, 3 = debug
 # - /set mailhilight_mode 3
-#               1 = only send MSG, 2 = only send public hilights, 3 = send MSG and public hilights
+#		1 = only send MSG, 2 = only send public hilights, 3 = send MSG and public hilights
 # - /set mailhilight_context ON
-#               Show context (Messages before and after hilight)
+#		Show context (Messages before and after hilight)
 # - /set mailhilight_context_length 5
-#               How many lines before hilight to get.
+#		How many lines before hilight to get.
 # - /set mailhilight_timer 60
-#               How many seconds to wait before sending mail.
+#		How many seconds to wait before sending mail.
 #
 ## Changelog
 # 0.1
-#       * Inital release (stripped version from mailhilight.pl)
+#	* Inital release (stripped version from mailhilight.pl)
 # 0.2
-#       * added join/part/quit etc to after-context
+#	* added join/part/quit etc to after-context
+# 0.3
+# * Support for NMA (Notify My Android) https://www.notifymyandroid.com/
 #
 ## TODO
 # - somehow avoid sending same line several times? care?
+# - Prowl?
 # - dunno
 #
 ##################################

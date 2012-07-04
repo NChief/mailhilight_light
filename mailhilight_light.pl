@@ -33,9 +33,14 @@
 #	* Inital release (stripped version from mailhilight.pl)
 # 0.2
 #	* added join/part/quit etc to after-context
+# 0.3
+# * Support for NMA (Notify My Android) https://www.notifymyandroid.com/
 #
 ## TODO
 # - somehow avoid sending same line several times? care?
+# - Prowl?
+# - Ingore nick/channel
+# - verify nma?
 # - dunno
 #
 ##################################
@@ -50,6 +55,7 @@ use utf8;
 use POSIX;
 use vars qw($VERSION %IRSSI);
 use Data::Dumper;
+use LWP::UserAgent;
 
 $VERSION = "0.2";
 %IRSSI = (
@@ -68,10 +74,12 @@ settings_add_int('mailhilight_light', 'mailhilight_mode', 3); # 1 = only send MS
 settings_add_bool('mailhilight_light', 'mailhilight_context', 1); # Send context? (messages before and after hilight)
 settings_add_int('mailhilight_light', 'mailhilight_context_length', 5); # Lines (of context) before hilight to get.
 settings_add_int('mailhilight_light', 'mailhilight_timer', 60);
+settings_add_bool('mailhilight_light', 'mailhilight_nma', 0); # Use NMA in stead of mail.
+settings_add_str('mailhilight_light', 'mailhilight_nmakey', '');
 
 
 # vars
-my(@hilights, $mailto, $mailfrom, $subject, $verbose, $mode, $context, $context_length, $timer);
+my(@hilights, $mailto, $mailfrom, $subject, $verbose, $mode, $context, $context_length, $timer, $use_nma, $nma_key, $nma_subject);
 my $messages = {};
 my $timebuffer = undef;
 
@@ -127,7 +135,7 @@ sub save_message {
 			context_add($channel, $server) if ($context);
 		}
 		my $prefix = $nick_rec->{prefixes} || " ";
-		push(@{$messages->{$channel}->{'messages'}}, $time.' &lt;'.$prefix.$nick.'&gt; '.$msg);
+		push(@{$messages->{$channel}->{'messages'}}, gtlt($time.' <'.$prefix.$nick.'> '.$msg));
 		print CRAP "Hilight saved" if ($verbose >=2);
 		
 		
@@ -142,7 +150,7 @@ sub save_message {
 		} else {
 			$messages->{$nick}->{'first'} = 1;
 		}
-		push(@{$messages->{$nick}->{'messages'}}, $time.' &lt;'.$nick.'&gt; '.$msg);
+		push(@{$messages->{$nick}->{'messages'}}, gtlt($time.' <'.$nick.'> '.$msg));
 		print CRAP "MSG saved" if ($verbose >=2);
 		if(defined($timebuffer)) {
 			Irssi::timeout_remove($timebuffer);
@@ -169,13 +177,50 @@ sub send_messages {
 		}
 		$mail .= "<br /><hr /><br />";
 	}
-	foreach(@hilights) {
-		$mail =~ s/($_)/<b>$1<\/b>/gi;
-	}
+  unless($use_nma) {
+    foreach(@hilights) {
+      $mail =~ s/($_)/<b>$1<\/b>/gi;
+    }
+  }
 	if (defined($mail)) {
-		my %sendmail = ( To => $mailto, From => $mailfrom, 'Content-Type' => 'text/html; charset="UTF-8"', Subject => $subject, Message => $mail );
-		sendmail(%sendmail) or die($Mail::Sendmail::error);
-		print CRAP "Hilights sent to ".$mailto if ($verbose >= 1);
+    my $nma_valid = 1;
+    if($use_nma and length($mail) > 1000) {
+      print CRAP "Message to long to send with NMA(".length($mail)." chars), fallback to mail." if ($verbose >= 1);
+      $nma_valid = 0;
+      #$mail = gtlt($mail);
+      foreach(@hilights) {
+        $mail =~ s/($_)/<b>$1<\/b>/gi;
+      }
+      
+    }
+    if($use_nma and $nma_valid) {
+      my ($userAgent, $request, $response, $requestURL);
+      $mail =~ s/<br \/>/\n/g;
+      $mail =~ s/<hr \/>/\n----------------\n/g;
+      $mail =~ s/\&gt\;/>/g;
+      $mail =~ s/\&lt\;/</g;
+      $mail =~ s/([^A-Za-z0-9])/sprintf("%%%02X", ord($1))/seg;
+      $userAgent = LWP::UserAgent->new;
+      $userAgent->agent("NMAScript/1.0");
+      $userAgent->env_proxy();
+      $requestURL = sprintf("https://www.notifymyandroid.com/publicapi/notify?apikey=%s&application=%s&event=%s&description=%s&priority=%d",
+				$nma_key,
+				"Irssi",
+				$nma_subject,
+				$mail,
+				0);
+      $request = HTTP::Request->new(GET => $requestURL);
+      $response = $userAgent->request($request);
+      if ($response->is_success) {
+        print CRAP "Hilights sent with NMA" if ($verbose >= 1);
+      } else {
+        print CRAP "Unable to send with NMA - ".$response if ($verbose >= 1);
+      }
+    } else {
+      my %sendmail = ( To => $mailto, From => $mailfrom, 'Content-Type' => 'text/html; charset="UTF-8"', Subject => $subject, Message => $mail );
+      sendmail(%sendmail) or die($Mail::Sendmail::error);
+      print CRAP "Hilights sent to ".$mailto if ($verbose >= 1);
+    }
 	}
 	$messages = {};
 	$timebuffer = undef;
@@ -198,8 +243,8 @@ sub context_add {
 
 sub gtlt {
 	my $content = shift;
-	$content =~ s/</\&lt\;/g;
-	$content =~ s/>/\&gt\;/g;
+  $content =~ s/</\&lt\;/g;
+  $content =~ s/>/\&gt\;/g;
 	return $content;
 }
 
@@ -213,6 +258,15 @@ sub setup_changed { # update vars when setup is changed.
 	$context = settings_get_bool('mailhilight_context');
 	$context_length = settings_get_int('mailhilight_context_length');
 	$timer = settings_get_int('mailhilight_timer');
+  $use_nma = settings_get_bool('mailhilight_nma');
+  $nma_key = settings_get_str('mailhilight_nmakey');
+  if($use_nma) {
+    $nma_subject = $subject;
+    $nma_subject =~ s/([^A-Za-z0-9])/sprintf("%%%02X", ord($1))/seg;
+  }
+  if($nma_key) {
+    # Verify?
+  }
 }
 
 sub cmd_away {
